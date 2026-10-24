@@ -119,6 +119,40 @@ create index if not exists idx_wex_workout            on public.workout_exercise
 create index if not exists idx_wex_exercise           on public.workout_exercises(exercise_id);
 create index if not exists idx_sets_wex               on public.sets(workout_exercise_id);
 
+-- ---------- De-duplicate seed data, then guarantee uniqueness ----------
+-- If the first-run seed ever ran twice for an account (e.g. the app was opened on
+-- two devices at once), merge duplicates: keep the oldest row per (user, name),
+-- repoint any history to it, delete the rest. Safe to run repeatedly.
+with ranked as (
+  select id,
+         first_value(id) over (partition by user_id, name order by created_at, id) as keep_id,
+         row_number()    over (partition by user_id, name order by created_at, id) as rn
+  from public.exercises)
+update public.workout_exercises w set exercise_id = r.keep_id
+from ranked r where w.exercise_id = r.id and r.rn > 1;
+
+with ranked as (
+  select id, row_number() over (partition by user_id, name order by created_at, id) as rn
+  from public.exercises)
+delete from public.exercises e using ranked r where e.id = r.id and r.rn > 1;
+
+with ranked as (
+  select id,
+         first_value(id) over (partition by user_id, name order by created_at, id) as keep_id,
+         row_number()    over (partition by user_id, name order by created_at, id) as rn
+  from public.routines)
+update public.workouts w set routine_id = r.keep_id
+from ranked r where w.routine_id = r.id and r.rn > 1;
+
+with ranked as (
+  select id, row_number() over (partition by user_id, name order by created_at, id) as rn
+  from public.routines)
+delete from public.routines x using ranked r where x.id = r.id and r.rn > 1;
+
+-- Exercise names are unique per user; a concurrent second seed now fails cleanly
+-- instead of doubling the list (the app treats that as "already seeded").
+create unique index if not exists uq_exercises_user_name on public.exercises(user_id, name);
+
 -- ---------- Row Level Security ----------
 alter table public.muscle_groups     enable row level security;
 alter table public.sub_groups        enable row level security;

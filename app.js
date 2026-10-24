@@ -136,7 +136,14 @@ class SupabaseDB {
   resetPassword(email) { return this.sb.auth.resetPasswordForEmail(email, { redirectTo: this.redirect() }); }
   updatePassword(password) { return this.sb.auth.updateUser({ password }); }
   signOut() { return this.sb.auth.signOut(); }
-  async q(p) { const { data, error } = await p; if (error) throw new Error(error.message || String(error)); return data; }
+  async q(p) {
+    const { data, error } = await p;
+    if (error) {
+      if (/uq_exercises_user_name/.test(error.message || '')) throw new Error('An exercise with that name already exists');
+      throw new Error(error.message || String(error));
+    }
+    return data;
+  }
   own(row) { return Object.assign({ user_id: this.userId }, row); }
 
   async fetchAll() {
@@ -257,12 +264,7 @@ async function startApp() {
   $('#app').innerHTML = '<div class="spinner"></div>';
   try {
     await reload();
-    if (!App.D.exercises.length) {
-      await App.db.insertExercises(seedExercisesFromSeed());
-      if (!App.D.routines.length) for (const r of seedRoutinesFromSeed()) await App.db.insertRoutine(r);
-      await reload();
-      toast('Loaded default exercises & routines');
-    }
+    if (!App.D.exercises.length) await seedDefaults();
   } catch (e) {
     $('#app').innerHTML = `<div class="screen"><div class="empty"><div class="big">⚠️</div><p>${esc(e.message)}</p>
       <p class="small muted">If this is a fresh Supabase project, make sure you ran schema.sql.</p>
@@ -276,6 +278,23 @@ async function startApp() {
   App.stack = [];
   render();
   startTickers();
+}
+
+// First-run seed. Guarded against running twice for the same account (two devices
+// opened at once, or a reload mid-seed): the unique index on exercises(user_id, name)
+// makes the second insert fail, which we treat as "someone else already seeded".
+async function seedDefaults() {
+  if (seedDefaults.running) return; seedDefaults.running = true;
+  try {
+    await App.db.insertExercises(seedExercisesFromSeed());
+    await reload();
+    if (!App.D.routines.length) for (const r of seedRoutinesFromSeed()) await App.db.insertRoutine(r);
+    await reload();
+    toast('Loaded default exercises & routines');
+  } catch (e) {
+    if (!/duplicate|unique|23505/i.test(e.message)) throw e;
+    await reload();
+  } finally { seedDefaults.running = false; }
 }
 
 async function reload() {

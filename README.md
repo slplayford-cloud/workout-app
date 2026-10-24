@@ -77,6 +77,10 @@ node build-schema.mjs
 
 to regenerate the taxonomy inserts in `schema.sql`, then re-run `schema.sql` in Supabase. Default exercises and routines are seeded by the app the first time it finds an empty account, so changes to those only affect new accounts.
 
+## Troubleshooting
+
+- **Every exercise (or routine) appears twice**: the first-run seed ran twice for the account (two devices opened at once, or a reload mid-seed). Re-run `schema.sql` in the SQL editor: it merges duplicates (keeping the oldest and repointing history), then adds a unique index so it cannot happen again.
+
 ## Notes & limits
 
 - Free-tier Supabase pauses projects after a week without requests; opening the app un-pauses it (first load may take ~30 s then).
